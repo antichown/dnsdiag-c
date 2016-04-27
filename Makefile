@@ -6,14 +6,17 @@ CFLAGS+=$(CPPFLAGS)
 LDFLAGS=-L$(PREFIX)/lib
 LDLIBS=
 
-CFLAGS+=$(shell pkg-config --cflags libldns openssl)
-LDFLAGS+=$(shell pkg-config --libs libldns openssl)
+INCLUDES:=$(shell pkg-config --cflags libldns openssl)
+LIBS:=$(shell pkg-config --libs libldns openssl)
+
+CFLAGS+=$(INCLUDES)
+LDFLAGS+=$(LIBS)
 
 PROGS = dnsping
 
 all: $(PROGS)
 
-dnsping: dnsping.c
+dnsping: Makefile dnsping.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) $(LDLIBS) dnsping.c -o dnsping
 
 clean:
