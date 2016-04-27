@@ -26,6 +26,7 @@
  * 
  */
 
+#include <math.h>
 #include <sys/socket.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -98,17 +99,35 @@ inline void ldns_check_for_error(ldns_status s)
 	exit(EXIT_FAILURE);
 }
 
+double std_dev(double a[], int n) {
+    if(n == 0)
+        return 0.0;
+    double sum = 0;
+    for(int i = 0; i < n; ++i)
+       sum += a[i];
+    double mean = sum / n;
+    double sq_diff_sum = 0;
+    for(int i = 0; i < n; ++i) {
+       double diff = a[i] - mean;
+       sq_diff_sum += diff * diff;
+    }
+    double variance = sq_diff_sum / n;
+    return sqrt(variance);
+}
+
 int
 main(int argc, char *argv[])
 {
 	int		opt;
 	bool	quiet ,verbose;
 	int		src_port, dst_port, count, timeout;
-	char    *server, *host;
+	char    *server, *host, *dnsrecord;
 	struct  sigaction sig_action;
 	sigset_t sig_set;
     struct timeval t1, t2;
     double 	elapsed;
+    double  r_min, r_max, r_avg, r_sum;
+    u_int	received;
 
 
 	ldns_resolver  *res = NULL;
@@ -118,6 +137,7 @@ main(int argc, char *argv[])
 	ldns_rr_list   *rr;
 	ldns_status		s;
 	ldns_rr_type  rtype;
+	ldns_pkt_type  reply_type;
 
 
 	/* Block unnecessary signals */
@@ -146,9 +166,15 @@ main(int argc, char *argv[])
 	count = 10;
 	timeout = 5;
 	server = NULL;
-	rtype = LDNS_RR_TYPE_A;
+	dnsrecord = strdup("A");
 
-	while ((opt = getopt(argc, argv, "hqvs:c:")) != -1) {
+	r_min = 0;
+	r_max = 0;
+	r_avg = 0;
+	r_sum = 0;
+	received = 0;
+
+	while ((opt = getopt(argc, argv, "hqvs:c:t:")) != -1) {
 		switch (opt) {
 		case 'h':
 			usage();
@@ -168,6 +194,9 @@ main(int argc, char *argv[])
 		case 'c':
 			count = atoi(optarg);
 			break;
+		case 't':
+			dnsrecord = optarg;
+			break;
 		default:
 			printf("invalid option: %c\n", opt);
 			usage();
@@ -186,11 +215,13 @@ main(int argc, char *argv[])
 	}
 
 	/* cook ldns food */
+	rtype = ldns_get_rr_type_by_name(dnsrecord);
 	res = ldns_resolver_new();
 	domain = ldns_dname_new_frm_str(host);
 
 	if (server == NULL) { /* use system resolver */
 		s = ldns_resolver_new_frm_file(&res, NULL);
+		/* TODO: initialize 'server' with a sane value */
 	}
 	else { /* use given nameserver */
 	    dnsserver = ldns_rdf_new_frm_str(LDNS_RDF_TYPE_A,  server);
@@ -199,7 +230,16 @@ main(int argc, char *argv[])
 	ldns_check_for_error(s);
 
 	setbuf(stdout, NULL); /* flush every single line */
-	for (int i=0; i < count; i++){
+
+    printf("%s DNS: %s:%d, hostname: %s, rdatatype: %s\n" , PROGNAME, server, dst_port, host, dnsrecord);
+
+    int i;
+    double rtimes[count];
+    bzero(&rtimes, sizeof(rtimes));
+
+	for (i=0; i < count; i++){
+
+		if (should_stop) break; /* CTRL+C pressed once */
 
 		gettimeofday(&t1, NULL);
 		s = ldns_resolver_query_status(&p, res,
@@ -208,9 +248,14 @@ main(int argc, char *argv[])
 	                                LDNS_RR_CLASS_IN,
 	                                LDNS_RD);
 		gettimeofday(&t2, NULL);
-		if (s != LDNS_STATUS_OK) {
-
+		reply_type = ldns_pkt_reply_type(p);
+		if (s == LDNS_STATUS_OK) {
+			received++;
 		}
+		else {
+			printf("%s\n",ldns_get_errorstr_by_id(s));			
+		}
+
 		elapsed = (t2.tv_sec - t1.tv_sec) * 1000.0;      // sec to ms
     	elapsed += (t2.tv_usec - t1.tv_usec) / 1000.0;   // us to ms
     	if (verbose) {
@@ -222,10 +267,27 @@ main(int argc, char *argv[])
 
     	}
 
-		printf("%lu bytes from %s: seq=%-3d time=%3.3f ms\n", sizeof(*p), server, i, elapsed);
+    	r_sum += elapsed;
+    	rtimes[i] = elapsed;
+    	if (r_min ==0 || r_min > elapsed) {
+    		r_min = elapsed;
+    	}
+    	if (r_max == 0 || elapsed > r_max) {
+    		r_max = elapsed;
+    	}
+
+		printf("%zu bytes from %s: seq=%-3d time=%3.3f ms\n", ldns_pkt_size(p), server, i, elapsed);
+	}
+	r_avg = r_sum / count;
+
+	printf("--- %s %s statistics ---\n" , server, PROGNAME);
+	printf("%u requests transmitted, %u responses received,  %u%% lost\n", i, received, 0);
+	printf("min=%.3f ms, avg=%.3f ms, max=%.3f ms, stddev=%.3f ms\n", r_min, r_avg, r_max, std_dev(rtimes,i));
+
+	if (verbose) {
+		ldns_rr_list_deep_free(rr);
 	}
 
-    // ldns_rr_list_deep_free(rr);
     ldns_pkt_free(p);
     ldns_resolver_deep_free(res);
 	exit(EXIT_SUCCESS);
