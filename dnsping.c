@@ -115,7 +115,7 @@ main(int argc, char *argv[])
 	ldns_rdf       *domain;
 	ldns_rdf       *dnsserver;
 	ldns_pkt       *p;
-	// ldns_rr_list   *rr;
+	ldns_rr_list   *rr;
 	ldns_status		s;
 	ldns_rr_type  rtype;
 
@@ -145,7 +145,7 @@ main(int argc, char *argv[])
 	dst_port = 53;
 	count = 10;
 	timeout = 5;
-	server = strdup("8.8.8.8");
+	server = NULL;
 	rtype = LDNS_RR_TYPE_A;
 
 	while ((opt = getopt(argc, argv, "hqvs:c:")) != -1) {
@@ -186,31 +186,42 @@ main(int argc, char *argv[])
 	}
 
 	/* cook ldns food */
-	domain = ldns_dname_new_frm_str(host);
 	res = ldns_resolver_new();
-    dnsserver = ldns_rdf_new_frm_str(LDNS_RDF_TYPE_A,  server);
-	s = ldns_resolver_push_nameserver(res, dnsserver);
+	domain = ldns_dname_new_frm_str(host);
+
+	if (server == NULL) { /* use system resolver */
+		s = ldns_resolver_new_frm_file(&res, NULL);
+	}
+	else { /* use given nameserver */
+	    dnsserver = ldns_rdf_new_frm_str(LDNS_RDF_TYPE_A,  server);
+		s = ldns_resolver_push_nameserver(res, dnsserver);
+	}
 	ldns_check_for_error(s);
-	/*s = ldns_resolver_new_frm_file(&res, NULL);
-	ldns_check_for_error(s);*/
+
 	setbuf(stdout, NULL); /* flush every single line */
 	for (int i=0; i < count; i++){
 
 		gettimeofday(&t1, NULL);
-		p = ldns_resolver_query(res,
+		s = ldns_resolver_query_status(&p, res,
 	                                domain,
 	                                rtype,
 	                                LDNS_RR_CLASS_IN,
 	                                LDNS_RD);
 		gettimeofday(&t2, NULL);
-/*		rr = ldns_pkt_rr_list_by_type(p,
-	                                    rtype,
-	                                    LDNS_SECTION_ANSWER);
-*/
+		if (s != LDNS_STATUS_OK) {
+
+		}
 		elapsed = (t2.tv_sec - t1.tv_sec) * 1000.0;      // sec to ms
     	elapsed += (t2.tv_usec - t1.tv_usec) / 1000.0;   // us to ms
-/*		ldns_rr_list_sort(rr); 
-	    ldns_rr_list_print(stdout, rr);*/
+    	if (verbose) {
+			rr = ldns_pkt_rr_list_by_type(p,
+		                                    rtype,
+		                                    LDNS_SECTION_ANSWER);
+			ldns_rr_list_sort(rr); 
+		    ldns_rr_list_print(stdout, rr);
+
+    	}
+
 		printf("%lu bytes from %s: seq=%-3d time=%3.3f ms\n", sizeof(*p), server, i, elapsed);
 	}
 
