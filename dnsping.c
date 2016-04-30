@@ -90,44 +90,48 @@ signal_handler(int sig)
 	}
 }
 
-inline void ldns_check_for_error(ldns_status s)
+inline void 
+ldns_check_for_error(ldns_status s)
 {
-	if (s == LDNS_STATUS_OK){
+	if (s == LDNS_STATUS_OK) {
 		return;
 	}
-	printf("error: %s\n",ldns_get_errorstr_by_id(s));
+	printf("error: %s\n", ldns_get_errorstr_by_id(s));
 	exit(EXIT_FAILURE);
 }
 
-double std_dev(double a[], int n) {
-    if(n == 0)
-        return 0.0;
-    double sum = 0;
-    for(int i = 0; i < n; ++i)
-       sum += a[i];
-    double mean = sum / n;
-    double sq_diff_sum = 0;
-    for(int i = 0; i < n; ++i) {
-       double diff = a[i] - mean;
-       sq_diff_sum += diff * diff;
-    }
-    double variance = sq_diff_sum / n;
-    return sqrt(variance);
+/* code from https://www.strchr.com/standard_deviation_in_one_pass */
+double 
+std_dev(double a[], int n)
+{
+	if (n == 0)
+		return 0.0;
+	double		sum = 0;
+	for (int i = 0; i < n; ++i)
+		sum += a[i];
+	double		mean = sum / n;
+	double		sq_diff_sum = 0;
+	for (int i = 0; i < n; ++i) {
+		double		diff = a[i] - mean;
+		sq_diff_sum += diff * diff;
+	}
+	double		variance = sq_diff_sum / n;
+	return sqrt(variance);
 }
 
 int
 main(int argc, char *argv[])
 {
 	int		opt;
-	bool	quiet ,verbose;
+	bool	quiet, verbose;
 	int		src_port, dst_port, count, timeout;
 	char    *server, *host, *dnsrecord;
-	struct  sigaction sig_action;
-	sigset_t sig_set;
-    struct timeval t1, t2;
-    double 	elapsed;
-    double  r_min, r_max, r_avg, r_sum;
-    u_int	received;
+	struct sigaction sig_action;
+	sigset_t	sig_set;
+	struct timeval	t1, t2;
+	double		elapsed;
+	double		r_min  , r_max, r_avg, r_sum;
+	u_int		received;
 
 
 	ldns_resolver  *res = NULL;
@@ -136,8 +140,8 @@ main(int argc, char *argv[])
 	ldns_pkt       *p;
 	ldns_rr_list   *rr;
 	ldns_status		s;
-	ldns_rr_type  rtype;
-	ldns_pkt_type  reply_type;
+	ldns_rr_type	rtype;
+	ldns_pkt_type	reply_type;
 
 
 	/* Block unnecessary signals */
@@ -208,7 +212,7 @@ main(int argc, char *argv[])
 	argc -= optind;
 	host = argv[0];
 
-	if (argc < 1) { /* no hostname given */
+	if (argc < 1) {		/* no hostname given */
 		printf("error: please specify a host name\n");
 		usage();
 		exit(EXIT_SUCCESS);
@@ -219,76 +223,78 @@ main(int argc, char *argv[])
 	res = ldns_resolver_new();
 	domain = ldns_dname_new_frm_str(host);
 
-	if (server == NULL) { /* use system resolver */
+	if (server == NULL) {	/* use system resolver */
 		s = ldns_resolver_new_frm_file(&res, NULL);
+		if (res->_nameserver_count < 1) {
+			printf("no name servers found\n");
+			exit(EXIT_FAILURE);
+		}
 		/* TODO: initialize 'server' with a sane value */
-	}
-	else { /* use given nameserver */
-	    dnsserver = ldns_rdf_new_frm_str(LDNS_RDF_TYPE_A,  server);
+	} else {		/* use given nameserver */
+		dnsserver = ldns_rdf_new_frm_str(LDNS_RDF_TYPE_A, server);
 		s = ldns_resolver_push_nameserver(res, dnsserver);
 	}
 	ldns_check_for_error(s);
 
-	setbuf(stdout, NULL); /* flush every single line */
+	setbuf(stdout, NULL);	/* flush every single line */
 
-    printf("%s DNS: %s:%d, hostname: %s, rdatatype: %s\n" , PROGNAME, server, dst_port, host, dnsrecord);
+	printf("%s DNS: %s:%d, hostname: %s, rdatatype: %s\n", PROGNAME, server, dst_port, host, dnsrecord);
 
-    int i;
-    double rtimes[count];
-    bzero(&rtimes, sizeof(rtimes));
+	int		i;
+	double		rtimes  [count];
+	bzero(&rtimes, sizeof(rtimes));
 
-	for (i=0; i < count; i++){
+	for (i = 0; i < count; i++) {
 
-		if (should_stop) break; /* CTRL+C pressed once */
+		if (should_stop)
+			break;	/* CTRL+C pressed once */
 
 		gettimeofday(&t1, NULL);
 		s = ldns_resolver_query_status(&p, res,
-	                                domain,
-	                                rtype,
-	                                LDNS_RR_CLASS_IN,
-	                                LDNS_RD);
+					       domain,
+					       rtype,
+					       LDNS_RR_CLASS_IN,
+					       LDNS_RD);
 		gettimeofday(&t2, NULL);
 		reply_type = ldns_pkt_reply_type(p);
 		if (s == LDNS_STATUS_OK) {
 			received++;
-		}
-		else {
-			printf("%s\n",ldns_get_errorstr_by_id(s));			
+		} else {
+			printf("%s\n", ldns_get_errorstr_by_id(s));
 		}
 
-		elapsed = (t2.tv_sec - t1.tv_sec) * 1000.0;      // sec to ms
-    	elapsed += (t2.tv_usec - t1.tv_usec) / 1000.0;   // us to ms
-    	if (verbose) {
+		elapsed = (t2.tv_sec - t1.tv_sec) * 1000.0;
+		//sec to ms
+			elapsed += (t2.tv_usec - t1.tv_usec) / 1000.0;
+		//us to ms
+			if (verbose) {
 			rr = ldns_pkt_rr_list_by_type(p,
-		                                    rtype,
-		                                    LDNS_SECTION_ANSWER);
-			ldns_rr_list_sort(rr); 
-		    ldns_rr_list_print(stdout, rr);
+						      rtype,
+						      LDNS_SECTION_ANSWER);
+			ldns_rr_list_sort(rr);
+			ldns_rr_list_print(stdout, rr);
 
-    	}
-
-    	r_sum += elapsed;
-    	rtimes[i] = elapsed;
-    	if (r_min ==0 || r_min > elapsed) {
-    		r_min = elapsed;
-    	}
-    	if (r_max == 0 || elapsed > r_max) {
-    		r_max = elapsed;
-    	}
-
+		}
+		r_sum += elapsed;
+		rtimes[i] = elapsed;
+		if (r_min == 0 || r_min > elapsed) {
+			r_min = elapsed;
+		}
+		if (r_max == 0 || elapsed > r_max) {
+			r_max = elapsed;
+		}
 		printf("%zu bytes from %s: seq=%-3d time=%3.3f ms\n", ldns_pkt_size(p), server, i, elapsed);
 	}
 	r_avg = r_sum / count;
 
-	printf("--- %s %s statistics ---\n" , server, PROGNAME);
+	printf("--- %s %s statistics ---\n", server, PROGNAME);
 	printf("%u requests transmitted, %u responses received,  %u%% lost\n", i, received, 0);
-	printf("min=%.3f ms, avg=%.3f ms, max=%.3f ms, stddev=%.3f ms\n", r_min, r_avg, r_max, std_dev(rtimes,i));
+	printf("min=%.3f ms, avg=%.3f ms, max=%.3f ms, stddev=%.3f ms\n", r_min, r_avg, r_max, std_dev(rtimes, i));
 
 	if (verbose) {
 		ldns_rr_list_deep_free(rr);
 	}
-
-    ldns_pkt_free(p);
-    ldns_resolver_deep_free(res);
+	ldns_pkt_free(p);
+	ldns_resolver_deep_free(res);
 	exit(EXIT_SUCCESS);
 }
